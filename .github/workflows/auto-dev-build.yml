@@ -1,0 +1,60 @@
+name: Auto Dev Build & Release
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    paths-ignore:
+      - "*.md"
+      - ".gitignore"
+      - "docs/**"
+
+permissions:
+  contents: write
+
+jobs:
+  auto-dev-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
+
+      - name: Get version info
+        id: version
+        run: |
+          VERSION_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)
+          VERSION_CODE=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts | head -1)
+          COMMIT_SHORT=$(git rev-parse --short HEAD)
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+          echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
+          echo "commit=$COMMIT_SHORT" >> $GITHUB_OUTPUT
+          echo "branch=$BRANCH_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev-${{ steps.version.outputs.version_code }}-${{ steps.version.outputs.commit }}
+          name: "Dev Build - ${{ steps.version.outputs.branch }} (${{ steps.version.outputs.commit }})"
+          body: |
+            🔧 Automatic dev build
+            - Branch: ${{ steps.version.outputs.branch }}
+            - Commit: ${{ steps.version.outputs.commit }}
+            - Version: ${{ steps.version.outputs.version_name }}
+            - Version Code: ${{ steps.version.outputs.version_code }}
+          prerelease: true
+          files: app/build/outputs/apk/debug/*.apk
