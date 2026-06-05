@@ -2,6 +2,7 @@
 
 package com.nuvio.tv.ui.screens.settings
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
@@ -57,6 +60,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.core.build.AppFeaturePolicy
+import com.nuvio.tv.core.streams.STREAM_BADGE_IMPORT_LIMIT
 import com.nuvio.tv.domain.model.ContinueWatchingSortMode
 import com.nuvio.tv.domain.model.DiscoverLocation
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
@@ -65,6 +69,7 @@ import com.nuvio.tv.ui.components.ClassicLayoutPreview
 import com.nuvio.tv.ui.components.GridLayoutPreview
 import com.nuvio.tv.ui.components.ModernLayoutPreview
 import com.nuvio.tv.ui.components.NuvioDialog
+import com.nuvio.tv.ui.screens.addon.QrCodeOverlay
 import com.nuvio.tv.ui.theme.NuvioColors
 
 @Composable
@@ -86,6 +91,7 @@ private enum class LayoutSettingsSection {
     HOME_LAYOUT,
     HOME_CONTENT,
     DETAIL_PAGE,
+    STREAMS,
     CONTINUE_WATCHING,
     FOCUSED_POSTER,
     POSTER_CARD_STYLE
@@ -98,10 +104,13 @@ fun LayoutSettingsContent(
     essentialMode: Boolean = false
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val streamBadgeUiState by viewModel.streamBadgeUiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     var homeLayoutExpanded by rememberSaveable(essentialMode) { mutableStateOf(essentialMode) }
     var homeContentExpanded by rememberSaveable { mutableStateOf(false) }
     var detailPageExpanded by rememberSaveable { mutableStateOf(false) }
+    var streamsExpanded by rememberSaveable { mutableStateOf(false) }
     var continueWatchingExpanded by rememberSaveable { mutableStateOf(false) }
     var focusedPosterExpanded by rememberSaveable { mutableStateOf(false) }
     var posterCardStyleExpanded by rememberSaveable { mutableStateOf(false) }
@@ -110,6 +119,7 @@ fun LayoutSettingsContent(
     val defaultHomeLayoutHeaderFocus = remember { FocusRequester() }
     val homeContentHeaderFocus = remember { FocusRequester() }
     val detailPageHeaderFocus = remember { FocusRequester() }
+    val streamsHeaderFocus = remember { FocusRequester() }
     val continueWatchingHeaderFocus = remember { FocusRequester() }
     val focusedPosterHeaderFocus = remember { FocusRequester() }
     val posterCardStyleHeaderFocus = remember { FocusRequester() }
@@ -133,6 +143,11 @@ fun LayoutSettingsContent(
             detailPageHeaderFocus.requestFocus()
         }
     }
+    LaunchedEffect(streamsExpanded, focusedSection) {
+        if (!streamsExpanded && focusedSection == LayoutSettingsSection.STREAMS) {
+            streamsHeaderFocus.requestFocus()
+        }
+    }
     LaunchedEffect(continueWatchingExpanded, focusedSection) {
         if (!continueWatchingExpanded && focusedSection == LayoutSettingsSection.CONTINUE_WATCHING) {
             continueWatchingHeaderFocus.requestFocus()
@@ -147,6 +162,10 @@ fun LayoutSettingsContent(
         if (!posterCardStyleExpanded && focusedSection == LayoutSettingsSection.POSTER_CARD_STYLE) {
             posterCardStyleHeaderFocus.requestFocus()
         }
+    }
+    LaunchedEffect(streamBadgeUiState.serverError) {
+        val error = streamBadgeUiState.serverError ?: return@LaunchedEffect
+        Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
     }
 
     Column(
@@ -444,6 +463,40 @@ fun LayoutSettingsContent(
                         onFocused = { focusedSection = LayoutSettingsSection.DETAIL_PAGE }
                     )
 
+                    if (AppFeaturePolicy.inAppTrailerPlaybackEnabled) {
+                        CompactToggleRow(
+                            title = stringResource(R.string.audio_autoplay_trailers),
+                            subtitle = stringResource(R.string.audio_autoplay_trailers_sub),
+                            checked = uiState.detailPageTrailerAutoplayEnabled,
+                            onToggle = {
+                                viewModel.onEvent(
+                                    LayoutSettingsEvent.SetDetailPageTrailerAutoplayEnabled(
+                                        !uiState.detailPageTrailerAutoplayEnabled
+                                    )
+                                )
+                            },
+                            onFocused = { focusedSection = LayoutSettingsSection.DETAIL_PAGE }
+                        )
+
+                        if (uiState.detailPageTrailerAutoplayEnabled) {
+                            SliderSettingsItem(
+                                icon = Icons.Default.Timer,
+                                title = stringResource(R.string.audio_trailer_delay),
+                                value = uiState.detailPageTrailerAutoplayDelaySeconds,
+                                valueText = "${uiState.detailPageTrailerAutoplayDelaySeconds}s",
+                                minValue = 3,
+                                maxValue = 15,
+                                step = 1,
+                                onValueChange = { seconds ->
+                                    viewModel.onEvent(
+                                        LayoutSettingsEvent.SetDetailPageTrailerAutoplayDelaySeconds(seconds)
+                                    )
+                                },
+                                onFocused = { focusedSection = LayoutSettingsSection.DETAIL_PAGE }
+                            )
+                        }
+                    }
+
                     CompactToggleRow(
                         title = stringResource(R.string.layout_trailer_button),
                         subtitle = stringResource(R.string.layout_trailer_button_sub),
@@ -482,6 +535,39 @@ fun LayoutSettingsContent(
                             )
                         },
                         onFocused = { focusedSection = LayoutSettingsSection.DETAIL_PAGE }
+                    )
+                }
+            }
+
+            item(key = "streams_section") {
+                CollapsibleSectionCard(
+                    title = stringResource(R.string.layout_section_streams),
+                    description = stringResource(R.string.layout_section_streams_desc),
+                    expanded = streamsExpanded,
+                    onToggle = { streamsExpanded = !streamsExpanded },
+                    focusRequester = streamsHeaderFocus,
+                    onFocused = { focusedSection = LayoutSettingsSection.STREAMS }
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_stream_badges_section),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = NuvioColors.TextSecondary
+                    )
+                    CompactToggleRow(
+                        title = stringResource(R.string.settings_stream_size_badges_title),
+                        subtitle = stringResource(R.string.settings_stream_size_badges_description),
+                        checked = streamBadgeUiState.showFileSizeBadges,
+                        onToggle = {
+                            viewModel.setShowFileSizeBadges(!streamBadgeUiState.showFileSizeBadges)
+                        },
+                        onFocused = { focusedSection = LayoutSettingsSection.STREAMS }
+                    )
+                    NavigationSettingsItem(
+                        icon = Icons.Default.Image,
+                        title = stringResource(R.string.settings_stream_badge_urls_title),
+                        subtitle = streamBadgeRulesPreview(streamBadgeUiState),
+                        onClick = viewModel::startStreamBadgeQrMode,
+                        onFocused = { focusedSection = LayoutSettingsSection.STREAMS }
                     )
                 }
             }
@@ -712,6 +798,31 @@ fun LayoutSettingsContent(
                 onDismiss = { showCwSortModeDialog = false }
             )
         }
+
+        if (streamBadgeUiState.isQrModeActive) {
+            QrCodeOverlay(
+                qrBitmap = streamBadgeUiState.qrCodeBitmap,
+                serverUrl = streamBadgeUiState.serverUrl,
+                instruction = stringResource(R.string.stream_badge_qr_instruction),
+                onClose = viewModel::stopStreamBadgeQrMode,
+                qrSize = 168.dp
+            )
+        }
+    }
+}
+
+@Composable
+private fun streamBadgeRulesPreview(uiState: StreamBadgeSettingsUiState): String {
+    val rules = uiState.rules.normalized()
+    return if (rules.hasImport) {
+        stringResource(
+            R.string.settings_fusion_badges_summary,
+            rules.imports.size,
+            STREAM_BADGE_IMPORT_LIMIT,
+            rules.enabledFilterCount
+        )
+    } else {
+        stringResource(R.string.settings_fusion_badges_empty)
     }
 }
 
@@ -721,93 +832,28 @@ private fun ContinueWatchingSortModeDialog(
     onModeSelected: (ContinueWatchingSortMode) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val focusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-    }
-
     val options = listOf(
-        Triple(
+        SettingsPickerOption(
             ContinueWatchingSortMode.DEFAULT,
             stringResource(R.string.layout_cw_sort_default),
             stringResource(R.string.layout_cw_sort_default_desc)
         ),
-        Triple(
+        SettingsPickerOption(
             ContinueWatchingSortMode.STREAMING_STYLE,
             stringResource(R.string.layout_cw_sort_streaming),
             stringResource(R.string.layout_cw_sort_streaming_desc)
         )
     )
 
-    NuvioDialog(
-        onDismiss = onDismiss,
+    SettingsSingleChoiceDialog(
         title = stringResource(R.string.layout_cw_sort_mode),
+        options = options,
+        selectedValue = currentMode,
+        onOptionSelected = onModeSelected,
+        onDismiss = onDismiss,
         width = 420.dp,
-        suppressFirstKeyUp = false
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 320.dp)
-        ) {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(vertical = 4.dp)
-            ) {
-                items(
-                    count = options.size,
-                    key = { index -> options[index].first.name }
-                ) { index ->
-                    val (mode, title, description) = options[index]
-                    val isSelected = mode == currentMode
-
-                    Card(
-                        onClick = { onModeSelected(mode) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier),
-                        colors = CardDefaults.colors(
-                            containerColor = if (isSelected) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
-                            focusedContainerColor = NuvioColors.FocusBackground
-                        ),
-                        shape = CardDefaults.shape(shape = RoundedCornerShape(10.dp)),
-                        scale = CardDefaults.scale(focusedScale = 1f)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = title,
-                                    color = if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary,
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = description,
-                                    color = NuvioColors.TextSecondary,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                            if (isSelected) {
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = stringResource(R.string.cd_selected),
-                                    tint = NuvioColors.Primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+        maxHeight = 320.dp
+    )
 }
 
 @Composable
@@ -960,14 +1006,13 @@ private fun DiscoverLocationDialog(
     onLocationSelected: (DiscoverLocation) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val focusRequester = remember { FocusRequester() }
     val options = listOf(
-        Triple(
+        SettingsPickerOption(
             DiscoverLocation.IN_SEARCH,
             stringResource(R.string.layout_discover_location_in_search),
             stringResource(R.string.layout_discover_location_in_search_desc)
         ),
-        Triple(
+        SettingsPickerOption(
             DiscoverLocation.IN_SIDEBAR,
             stringResource(R.string.layout_discover_location_in_sidebar),
             stringResource(R.string.layout_discover_location_in_sidebar_desc)
@@ -980,78 +1025,15 @@ private fun DiscoverLocationDialog(
         selectedLocation
     }
 
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-    }
-
-    NuvioDialog(
-        onDismiss = onDismiss,
+    SettingsSingleChoiceDialog(
         title = stringResource(R.string.layout_discover_location_dialog_title),
+        options = options,
+        selectedValue = effectiveSelected,
+        onOptionSelected = onLocationSelected,
+        onDismiss = onDismiss,
         width = 460.dp,
-        suppressFirstKeyUp = false
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 320.dp)
-        ) {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(vertical = 4.dp)
-            ) {
-                items(
-                    count = options.size,
-                    key = { index -> options[index].first.name }
-                ) { index ->
-                    val (location, title, description) = options[index]
-                    val isSelected = location == effectiveSelected
-
-                    Card(
-                        onClick = { onLocationSelected(location) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier),
-                        colors = CardDefaults.colors(
-                            containerColor = if (isSelected) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
-                            focusedContainerColor = NuvioColors.FocusBackground
-                        ),
-                        shape = CardDefaults.shape(shape = RoundedCornerShape(10.dp)),
-                        scale = CardDefaults.scale(focusedScale = 1f)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = title,
-                                    color = if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary,
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = description,
-                                    color = NuvioColors.TextSecondary,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                            if (isSelected) {
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = stringResource(R.string.cd_selected),
-                                    tint = NuvioColors.Primary,
-                                    modifier = Modifier.height(20.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+        maxHeight = 320.dp
+    )
 }
 
 @Composable

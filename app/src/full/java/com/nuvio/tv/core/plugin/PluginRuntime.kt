@@ -26,7 +26,6 @@ import org.jsoup.select.Elements
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.URL
-import java.security.MessageDigest
 import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -34,8 +33,6 @@ import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 import java.util.zip.InflaterInputStream
 import kotlin.text.Charsets
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -153,6 +150,14 @@ class PluginRuntime @Inject constructor() {
         val documentCache = ConcurrentHashMap<String, Document>()
         val elementCache = ConcurrentHashMap<String, Element>()
         val inFlightCalls = ConcurrentHashMap.newKeySet<Call>()
+
+        val job = coroutineContext[kotlinx.coroutines.Job]
+        val cancellationRegistration = job?.invokeOnCompletion { cause ->
+            if (cause is kotlinx.coroutines.CancellationException) {
+                Log.d(TAG, "Scraper $scraperId coroutine cancelled! Cancelling ${inFlightCalls.size} in-flight HTTP calls.")
+                inFlightCalls.forEach { call -> call.cancel() }
+            }
+        }
 
         var resultJson = "[]"
 
@@ -395,6 +400,7 @@ class PluginRuntime @Inject constructor() {
             Log.e(TAG, "Plugin execution failed: ${e.message}", e)
             throw e
         } finally {
+            cancellationRegistration?.dispose()
             // Clean up caches
             documentCache.clear()
             elementCache.clear()

@@ -271,7 +271,8 @@ private fun PlayerRuntimeController.applyRecomputedNextEpisode(
             nextEpisode = nextInfo,
             postPlayMode = updatedMode,
             postPlayDismissedForCurrentEpisode =
-                if (shouldResetVisibility) false else state.postPlayDismissedForCurrentEpisode,
+                if (shouldResetVisibility && !state.postPlayDismissedForCurrentEpisode) false
+                else state.postPlayDismissedForCurrentEpisode,
         )
     }
 }
@@ -316,6 +317,8 @@ internal fun PlayerRuntimeController.evaluatePostPlayOverlayVisibility(positionM
     )
 
     if (!shouldShow) return
+
+    if (_uiState.value.postPlayDismissedForCurrentEpisode) return
 
     val shouldEnterStillWatching = shouldEnterStillWatchingPrompt(
         stillWatchingEnabled = stillWatchingEnabledSetting,
@@ -409,6 +412,7 @@ internal fun PlayerRuntimeController.tryShowParentalGuide() {
 }
 
 internal fun PlayerRuntimeController.fetchParentalGuide(id: String?, type: String?, season: Int?, episode: Int?) {
+    if (!parentalGuideEnabled) return
     if (id.isNullOrBlank()) return
 
     val imdbId = id.split(":").firstOrNull()?.takeIf { it.startsWith("tt") } ?: return
